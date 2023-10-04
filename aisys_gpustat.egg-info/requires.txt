@@ -1,0 +1,8 @@
+numpy
+pandas
+colored
+seaborn
+beartype
+humanize
+tabulate
+humanfriendly

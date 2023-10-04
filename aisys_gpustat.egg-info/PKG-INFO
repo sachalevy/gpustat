@@ -1,27 +1,47 @@
-## aisys_gpustat
+Metadata-Version: 2.1
+Name: aisys-gpustat
+Version: 0.0.15
+Summary: A simple SLURM gpu summary tool
+Home-page: https://github.com/albanie/slurm_gpustat
+Author: Samuel Albanie
+Classifier: Programming Language :: Python :: 3.10
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: POSIX :: Linux
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: colored
+Requires-Dist: seaborn
+Requires-Dist: beartype
+Requires-Dist: humanize
+Requires-Dist: tabulate
+Requires-Dist: humanfriendly
 
-`aisys_gpustat` is a simple command line utility that produces a summary of GPU usage on a slurm cluster. The tool can be used in two ways:
+## slurm_gpustat
+
+`slurm_gpustat` is a simple command line utility that produces a summary of GPU usage on a slurm cluster. The tool can be used in two ways:
 1. To query the current usage of GPUs on the cluster.
 2. To launch a daemon which will log usage over time.  This log can later be queried to provide usage statistics.
 
 ### Installation
 
-Install via `python -m pip install -e .`.  If you prefer to hack around with the source code, it's a [single python file](slurm_gpustat/slurm_gpustat.py).
+Install via `pip install slurm_gpustat`.  If you prefer to hack around with the source code, it's a [single python file](slurm_gpustat/slurm_gpustat.py).
 
 
 ### Usage
 
 To print a summary of current activity:
 
-`aisys_gpustat`
+`slurm_gpustat`
 
 To print a summary of current activity on particular partitions, e.g. `debug` & `normal`:
 
-`aisys_gpustat -p debug,normal` or `aisys_gpustat --partition debug,normal`
+`slurm_gpustat -p debug,normal` or `slurm_gpustat --partition debug,normal`
 
 To start the logging dameon:
 
-`aisys_gpustat --action daemon-start`
+`slurm_gpustat --action daemon-start`
 
 To view a summary of logged data:
 
@@ -30,7 +50,7 @@ To view a summary of logged data:
 
 ### Example outputs
 
-Running `aisys_gpustat` will produce something like this:
+Running `slurm_gpustat` will produce something like this:
 
 ```
 ----------------------
@@ -81,7 +101,7 @@ v100: 5 available
  -> gnodeg2: 3 v100 [cpu: 8/64, gres/gpu: 1/4, mem: 40G/191668M] [user2]
 ```
 
-Running `aisys_gpustat --action history` (after the daemon has run for a little while) will produce something like this:
+Running `slurm_gpustat --action history` (after the daemon has run for a little while) will produce something like this:
 
 ```
 Historical data contains 7 samples (2020-01-03 11:51:43 to 2020-01-03 11:51:45)

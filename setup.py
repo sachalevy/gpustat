@@ -12,11 +12,11 @@ with open("README.md", "r") as f:
 
 
 setuptools.setup(
-    name="slurm_gpustat",
+    name="aisys_gpustat",
     version="0.0.15",
     entry_points={
         "console_scripts": [
-            "slurm_gpustat=slurm_gpustat.slurm_gpustat:main",
+            "aisys_gpustat=slurm_gpustat.slurm_gpustat:main",
         ],
     },
     author="Samuel Albanie",
@@ -37,7 +37,7 @@ setuptools.setup(
         "humanfriendly",
     ],
     classifiers=[
-        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "License :: OSI Approved :: MIT License",
         'Operating System :: POSIX :: Linux',
     ],

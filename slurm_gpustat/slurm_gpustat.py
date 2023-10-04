@@ -569,6 +569,7 @@ def gpu_usage_grouped_by_user(resources: dict, partition: Optional[str] = None) 
                              for row in parse_cmd(detailed_job_cmd % jobid, split=True) if '=' in row}
         node_names = parse_node_names(node_str)
         for node_name in node_names:
+            gpu_type = None
             # If a node still has jobs running but is draining, it will not be present
             # in the "available" resources, so we ignore it
             if node_name not in resources:

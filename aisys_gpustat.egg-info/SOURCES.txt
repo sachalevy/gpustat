@@ -1,0 +1,9 @@
+README.md
+setup.py
+aisys_gpustat.egg-info/PKG-INFO
+aisys_gpustat.egg-info/SOURCES.txt
+aisys_gpustat.egg-info/dependency_links.txt
+aisys_gpustat.egg-info/entry_points.txt
+aisys_gpustat.egg-info/requires.txt
+aisys_gpustat.egg-info/top_level.txt
+slurm_gpustat/slurm_gpustat.py
