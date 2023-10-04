@@ -1,2 +1,0 @@
-[console_scripts]
-aisys_gpustat = slurm_gpustat.slurm_gpustat:main
