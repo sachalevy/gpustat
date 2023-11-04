@@ -14,6 +14,7 @@ import re
 import signal
 import subprocess
 import sys
+import json
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -59,11 +60,11 @@ class Daemon:
                 # exit first parent
                 sys.exit(0)
         except OSError as err:
-            sys.stderr.write('fork #1 failed: {0}\n'.format(err))
+            sys.stderr.write("fork #1 failed: {0}\n".format(err))
             sys.exit(1)
 
         # decouple from parent environment
-        os.chdir('/')
+        os.chdir("/")
         os.setsid()
         os.umask(0)
 
@@ -74,15 +75,15 @@ class Daemon:
                 # exit from second parent
                 sys.exit(0)
         except OSError as err:
-            sys.stderr.write('fork #2 failed: {0}\n'.format(err))
+            sys.stderr.write("fork #2 failed: {0}\n".format(err))
             sys.exit(1)
 
         # redirect standard file descriptors
         sys.stdout.flush()
         sys.stderr.flush()
-        si = open(os.devnull, 'r')
-        so = open(os.devnull, 'a+')
-        se = open(os.devnull, 'a+')
+        si = open(os.devnull, "r")
+        so = open(os.devnull, "a+")
+        se = open(os.devnull, "a+")
 
         os.dup2(si.fileno(), sys.stdin.fileno())
         os.dup2(so.fileno(), sys.stdout.fileno())
@@ -92,8 +93,8 @@ class Daemon:
         atexit.register(self.delpid)
 
         pid = str(os.getpid())
-        with open(self.pidfile, 'w+') as f:
-            f.write(pid + '\n')
+        with open(self.pidfile, "w+") as f:
+            f.write(pid + "\n")
 
     def delpid(self):
         os.remove(self.pidfile)
@@ -103,8 +104,7 @@ class Daemon:
 
         # Check for a pidfile to see if the daemon already runs
         try:
-            with open(self.pidfile, 'r') as pf:
-
+            with open(self.pidfile, "r") as pf:
                 pid = int(pf.read().strip())
         except IOError:
             pid = None
@@ -123,7 +123,7 @@ class Daemon:
 
         # Get the pid from the pidfile
         try:
-            with open(self.pidfile, 'r') as pf:
+            with open(self.pidfile, "r") as pf:
                 pid = int(pf.read().strip())
         except IOError:
             pid = None
@@ -160,8 +160,8 @@ class Daemon:
 
 
 class GPUStatDaemon(Daemon):
-    """A lightweight daemon which intermittently logs gpu usage to a text file.
-    """
+    """A lightweight daemon which intermittently logs gpu usage to a text file."""
+
     timestamp_format = "%Y-%m-%d_%H:%M:%S"
 
     def __init__(self, pidfile, log_path, log_interval):
@@ -222,8 +222,7 @@ class GPUStatDaemon(Daemon):
         return data
 
     def run(self):
-        """Run the daemon - will intermittently log gpu usage to disk.
-        """
+        """Run the daemon - will intermittently log gpu usage to disk."""
         while True:
             resources = get_node2gpus_mapping()
             usage = gpu_usage_grouped_by_user(resources)
@@ -296,7 +295,7 @@ def split_node_str(node_str):
         elif not stack and char == ",":
             breakpoints.append(ii + 1)
     end = len(node_str) + 1
-    return [node_str[i: j - 1] for i, j in zip(breakpoints, breakpoints[1:] + [end])]
+    return [node_str[i : j - 1] for i, j in zip(breakpoints, breakpoints[1:] + [end])]
 
 
 def parse_node_names(node_str):
@@ -322,15 +321,17 @@ def parse_node_names(node_str):
         else:
             head, tail = node_spec.index("["), node_spec.index("]")
             prefix = node_spec[:head]
-            subspecs = node_spec[head + 1:tail].split(",")
+            subspecs = node_spec[head + 1 : tail].split(",")
             for subspec in subspecs:
                 if "-" not in subspec:
                     subnames = [f"{prefix}{subspec}"]
                 else:
                     start, end = subspec.split("-")
                     num_digits = len(start)
-                    subnames = [f"{prefix}{str(x).zfill(num_digits)}"
-                                for x in range(int(start), int(end) + 1)]
+                    subnames = [
+                        f"{prefix}{str(x).zfill(num_digits)}"
+                        for x in range(int(start), int(end) + 1)
+                    ]
                 names.extend(subnames)
     return names
 
@@ -366,12 +367,28 @@ def node_states(partition: Optional[str] = None) -> dict:
     if partition:
         cmd += f" --partition={partition}"
     rows = parse_cmd(cmd)
-    states = {}
+    states, nodes = {}, set()
+
     for row in rows:
         tokens = row.split()
         state, names = tokens[4], tokens[5]
         node_names = parse_node_names(names)
-        states.update({name: state for name in node_names})
+        nodes = nodes.union(set(node_names))
+        states.update({name: {"SLURMState": state} for name in node_names})
+
+    for node in nodes:
+        # Call `scontrol show node` for each node, if not already done
+        cmd = f"scontrol show node {node}"
+        output = subprocess.getoutput(
+            cmd
+        )  # This will run the command and get the output
+
+        # Parse the output using the updated parsing logic
+        node_info = parse_scontrol_output(output)
+        # Assuming 'states' is a dictionary keyed by node name
+        # Add the CPU and memory information to each node's state entry
+        states[node].update(node_info[node])
+
     return states
 
 
@@ -397,10 +414,14 @@ def occupancy_stats_for_node(node: str) -> dict:
                 if tokens == [""]:
                     # SLURM sometimes omits information, so we alert the user to its
                     # its exclusion and report nothing for this node
-                    print(f"Missing information for {node}: {key}, skipping....")
+                    # print(f"Missing information for {node}: {key}, skipping....")
                     metrics[key] = {}
                 else:
                     metrics[key] = {x.split("=")[0]: x.split("=")[1] for x in tokens}
+
+    if not metrics["AllocTRES"]:
+        metrics["AllocTRES"] = {metric: "0" for metric in metrics["CfgTRES"]}
+
     occupancy = {}
     for metric, alloc_val in metrics["AllocTRES"].items():
         cfg_val = metrics["CfgTRES"][metric]
@@ -417,7 +438,7 @@ def occupancy_stats_for_node(node: str) -> dict:
 
 @beartype
 def get_node2gpus_mapping(
-        partition: Optional[str] = None,
+    partition: Optional[str] = None,
 ) -> dict:
     """Query SLURM for the number and types of GPUs under management.
 
@@ -433,6 +454,7 @@ def get_node2gpus_mapping(
         cmd += f" --partition={partition}"
     rows = parse_cmd(cmd)
     resources = defaultdict(list)
+    nodes = set()
 
     for row in rows:
         node_str, resource_strs = row.split("|")
@@ -442,17 +464,87 @@ def get_node2gpus_mapping(
 
             gpu_type, gpu_count = parse_gpu_type_and_count_via_regex(resource_str)
             node_names = parse_node_names(node_str)
+            nodes.update(set(node_names))
             for name in node_names:
                 resources[name].append({"type": gpu_type, "count": gpu_count})
+
+    for node in nodes:
+        # Call `scontrol show node` for each node
+        cmd = f"scontrol show node {node}"
+        output = subprocess.getoutput(
+            cmd
+        )  # This will run the command and get the output
+
+        # Parse the output using the updated parsing logic
+        node_info = parse_scontrol_output(output)
+
+        # Assuming 'resources' is a dictionary keyed by node name, containing lists of GPU info dictionaries
+        # Add the CPU and memory information to each node's entry
+        for resource in resources[node]:
+            resource.update(node_info[node])
 
     return resources
 
 
+def parse_scontrol_output(scontrol_output):
+    # This would typically be the output of `scontrol show node`
+    node_info = {}
+    previous_line = ""  # Initialize previous_line to handle line continuation
+
+    for line in scontrol_output.strip().split("\n"):
+        # Initialize a dictionary for the parsed information
+        info = {}
+        # Some lines in the output are continuations of the previous line and are indented
+        # Here we check for continuation lines which start with spaces and join them with the previous line
+        if line.startswith("   "):  # Continuation of the previous line
+            line = line.strip()  # Remove leading spaces
+            line = previous_line + " " + line  # Combine with the previous line
+        # Split the line into key=value pairs
+        items = line.split()
+        for item in items:
+            if "=" in item:
+                key, value = item.split("=", 1)  # Split on the first '=' only
+                info[key] = value
+        # If this line contains the NodeName, it's a new node entry
+        if "NodeName" in info:
+            node_name = info["NodeName"]
+            node_info[node_name] = info  # Start a new dictionary for this node
+        else:
+            # Otherwise, it's a continuation of the current node entry
+            node_info[node_name].update(info)
+        # Keep track of the current line for potential continuation
+        previous_line = line
+
+    # Now let's process the extracted info to get relevant details
+    processed_node_info = {}
+    for node_name, details in node_info.items():
+        # Check if the value is 'N/A' or not, and if not, convert to the appropriate type
+        cpus_total = int(details.get("CPUTot", "0").replace("N/A", "0"))
+        cpus_allocated = int(details.get("CPUAlloc", "0").replace("N/A", "0"))
+        cpus_load = float(details.get("CPULoad", "0.0").replace("N/A", "0.0"))
+        real_memory = int(details.get("RealMemory", "0").replace("N/A", "0"))
+        allocated_memory = int(details.get("AllocMem", "0").replace("N/A", "0"))
+        free_memory = int(details.get("FreeMem", "0").replace("N/A", "0"))
+        gres = details.get("Gres", "")
+
+        processed_node_info[node_name] = {
+            "CPUsTotal": cpus_total,
+            "CPUsAllocated": cpus_allocated,
+            "CPULoad": cpus_load,
+            "RealMemory": real_memory,
+            "AllocatedMemory": allocated_memory,
+            "FreeMemory": free_memory,
+            "Gres": gres,
+        }
+
+    return processed_node_info
+
+
 @beartype
 def parse_gpu_type_and_count_via_regex(
-        resource_str: str,
-        default_gpus: int = 4,
-        default_gpu_name: str = "NONAME_GPU",
+    resource_str: str,
+    default_gpus: int = 4,
+    default_gpu_name: str = "NONAME_GPU",
 ) -> Tuple[str, int]:
     """Parse the gpu type and gpu count from an sinfo output string using regex.
 
@@ -503,7 +595,9 @@ def summary_by_type(resources: dict, tag: str) -> List[List]:
     by_type = resource_by_type(resources)
     total = sum(x["count"] for sublist in by_type.values() for x in sublist)
     summary_table.append(["total", total])
-    for key, val in sorted(by_type.items(), key=lambda x: sum(y["count"] for y in x[1])):
+    for key, val in sorted(
+        by_type.items(), key=lambda x: sum(y["count"] for y in x[1])
+    ):
         gpu_count = sum(x["count"] for x in val)
         summary_table.append([key, gpu_count])
     return summary_table
@@ -522,13 +616,23 @@ def summary(mode: str, resources: dict = None, states: dict = None) -> List[List
         resources = get_node2gpus_mapping()
     if not states:
         states = node_states()
+
     if mode == "online":
-        res = {key: val for key, val in resources.items()
-               if states.get(key, "down") not in INACCESSIBLE}
+        res = {
+            key: val
+            for key, val in resources.items()
+            if (
+                states.get(key, "down")
+                if isinstance(states.get(key, "down"), str)
+                else states.get(key, "down").get("SLURMState")
+            )
+            not in INACCESSIBLE
+        }
     elif mode == "all":
         res = resources
     else:
         raise ValueError(f"Unknown mode: {mode}")
+
     return summary_by_type(res, tag=mode)
 
 
@@ -548,7 +652,9 @@ def gpu_usage_grouped_by_user(resources: dict, partition: Optional[str] = None) 
         resource_flag = "gres"
     else:
         resource_flag = "tres-per-node"
-    cmd = f"squeue -O {resource_flag}:100,nodelist:100,username:100,jobid:100 --noheader"
+    cmd = (
+        f"squeue -O {resource_flag}:100,nodelist:100,username:100,jobid:100 --noheader"
+    )
     if partition:
         cmd += f" --partition={partition}"
     detailed_job_cmd = "scontrol show jobid -dd %s"
@@ -557,7 +663,7 @@ def gpu_usage_grouped_by_user(resources: dict, partition: Optional[str] = None) 
     for row in rows:
         tokens = row.split()
         # ignore pending jobs
-        if len(tokens) < 4 or 'gpu' not in tokens[0]:
+        if len(tokens) < 4 or "gpu" not in tokens[0]:
             continue
         gpu_count_str, node_str, user, jobid = tokens
         gpu_count_tokens = gpu_count_str.split(":")
@@ -565,8 +671,11 @@ def gpu_usage_grouped_by_user(resources: dict, partition: Optional[str] = None) 
             gpu_count_tokens.append("1")
         num_gpus = int(gpu_count_tokens[-1])
         # get detailed job information, to check if using bash
-        detailed_job_info = {row.split('=')[0].strip(): row.split('=')[1].strip()
-                             for row in parse_cmd(detailed_job_cmd % jobid, split=True) if '=' in row}
+        detailed_job_info = {
+            row.split("=")[0].strip(): row.split("=")[1].strip()
+            for row in parse_cmd(detailed_job_cmd % jobid, split=True)
+            if "=" in row
+        }
         node_names = parse_node_names(node_str)
         for node_name in node_names:
             gpu_type = None
@@ -579,34 +688,34 @@ def gpu_usage_grouped_by_user(resources: dict, partition: Optional[str] = None) 
                 gpu_type = None
             elif len(gpu_count_tokens) == 3:
                 gpu_type = gpu_count_tokens[1]
-                if gpu_type == 'gpu':
-                    gpu_type = detailed_job_info['JOB_GRES'].split(':')[1]
+                if gpu_type == "gpu":
+                    gpu_type = detailed_job_info["JOB_GRES"].split(":")[1]
             if gpu_type is None:
                 if len(node_gpu_types) != 1:
                     gpu_type = sorted(
-                        resources[node_name],
-                        key=lambda k: k['count'],
-                        reverse=True
-                    )[0]['type']
-                    msg = (f"cannot determine node gpu type for {user} on {node_name}"
-                           f" (guessing {gpu_type})")
+                        resources[node_name], key=lambda k: k["count"], reverse=True
+                    )[0]["type"]
+                    msg = (
+                        f"cannot determine node gpu type for {user} on {node_name}"
+                        f" (guessing {gpu_type})"
+                    )
                     print(f"WARNING >>> {msg}")
                 else:
                     gpu_type = node_gpu_types[0]
             if gpu_type in usage[user]:
-                usage[user][gpu_type][node_name]['n_gpu'] += num_gpus
+                usage[user][gpu_type][node_name]["n_gpu"] += num_gpus
 
             else:
-                usage[user][gpu_type] = defaultdict(lambda: {'n_gpu': 0})
-                usage[user][gpu_type][node_name]['n_gpu'] += num_gpus
+                usage[user][gpu_type] = defaultdict(lambda: {"n_gpu": 0})
+                usage[user][gpu_type][node_name]["n_gpu"] += num_gpus
     return usage
 
 
 @beartype
 def in_use(
-        resources: dict = None,
-        partition: Optional[str] = None,
-        verbose: bool = False,
+    resources: dict = None,
+    partition: Optional[str] = None,
+    verbose: bool = False,
 ) -> List[List]:
     """Print a short summary of the resources that are currently used by each user.
 
@@ -619,22 +728,26 @@ def in_use(
     aggregates = {}
     for user, subdict in usage.items():
         aggregates[user] = {}
-        aggregates[user]['n_gpu'] = {key: sum([x['n_gpu'] for x in val.values()])
-                                     for key, val in subdict.items()}
+        aggregates[user]["n_gpu"] = {
+            key: sum([x["n_gpu"] for x in val.values()]) for key, val in subdict.items()
+        }
     in_use_table = [["user", "total GPU's allocated", "count per GPU"]]
-    for user, subdict in sorted(aggregates.items(),
-                                key=lambda x: sum(x[1]['n_gpu'].values()), reverse=True):
-        total = (f"{str(sum(subdict['n_gpu'].values())):2s} ")
-        summary_str = ", ".join([f"{key}: {val}" for key, val in subdict['n_gpu'].items()])
+    for user, subdict in sorted(
+        aggregates.items(), key=lambda x: sum(x[1]["n_gpu"].values()), reverse=True
+    ):
+        total = f"{str(sum(subdict['n_gpu'].values())):2s} "
+        summary_str = ", ".join(
+            [f"{key}: {val}" for key, val in subdict["n_gpu"].items()]
+        )
         in_use_table.append([user, total, summary_str])
     return in_use_table
 
 
 @beartype
 def available(
-        node2gpus_map: dict = None,
-        states: dict = None,
-        verbose: bool = False,
+    node2gpus_map: dict = None,
+    states: dict = None,
+    verbose: bool = False,
 ) -> List[List]:
     """Print a short summary of resources available on the cluster.
 
@@ -657,18 +770,29 @@ def available(
         states = node_states()
 
     # drop nodes that are in down/inaccessible
-    node2gpus_map = {node: gpus for node, gpus in node2gpus_map.items()
-                     if states.get(node, "down") not in INACCESSIBLE}
+    node2gpus_map = {
+        node: gpus
+        for node, gpus in node2gpus_map.items()
+        if (
+            states.get(node, "down")
+            if isinstance(states.get(node, "down"), str)
+            else states.get(node, "down").get("SLURMState")
+        )
+        not in INACCESSIBLE
+    }
 
     gpu_usage_by_user = gpu_usage_grouped_by_user(resources=node2gpus_map)
 
     for gpu_usage_for_user in gpu_usage_by_user.values():
         for gpu_type, node_dicts in gpu_usage_for_user.items():
             for node_name, user_gpu_count in node_dicts.items():
-                resource_idx = [x["type"] for x in node2gpus_map[node_name]].index(gpu_type)
+                resource_idx = [x["type"] for x in node2gpus_map[node_name]].index(
+                    gpu_type
+                )
                 count = node2gpus_map[node_name][resource_idx]["count"]
-                count = max(count - user_gpu_count['n_gpu'], 0)
+                count = max(count - user_gpu_count["n_gpu"], 0)
                 node2gpus_map[node_name][resource_idx]["count"] = count
+
     by_type = resource_by_type(node2gpus_map)
     total = sum(x["count"] for sublist in by_type.values() for x in sublist)
     avail_table.append(["total", total, ""])
@@ -681,13 +805,89 @@ def available(
                 node, count = x["node"], x["count"]
                 if count:
                     occupancy = occupancy_stats_for_node(node)
-                    users = [user for user in gpu_usage_by_user
-                             if node in gpu_usage_by_user[user].get(key, [])]
-                    details = [f"{key}: {val}" for key, val in sorted(occupancy.items())]
+                    users = [
+                        user
+                        for user in gpu_usage_by_user
+                        if node in gpu_usage_by_user[user].get(key, [])
+                    ]
+                    details = [
+                        f"{key}: {val}" for key, val in sorted(occupancy.items())
+                    ]
                     details = f"[{', '.join(details)}] [{','.join(users)}]"
                     summary_strs.append(f"\n -> {node}: {count} {key} {details}")
             tail = " ".join(summary_strs)
         avail_table.append([key, gpu_count, tail])
+    return avail_table
+
+
+def available_per_node(node2gpus_map: dict, states: dict):
+    # drop nodes that are in down/inaccessible
+    node2gpus_map = {
+        node: gpus
+        for node, gpus in node2gpus_map.items()
+        if (
+            states.get(node, "down")
+            if isinstance(states.get(node, "down"), str)
+            else states.get(node, "down").get("SLURMState")
+        )
+        not in INACCESSIBLE
+    }
+
+    gpu_usage_by_user = gpu_usage_grouped_by_user(resources=node2gpus_map)
+
+    for gpu_usage_for_user in gpu_usage_by_user.values():
+        for gpu_type, node_dicts in gpu_usage_for_user.items():
+            for node_name, user_gpu_count in node_dicts.items():
+                resource_idx = [x["type"] for x in node2gpus_map[node_name]].index(
+                    gpu_type
+                )
+                count = node2gpus_map[node_name][resource_idx]["count"]
+                count = max(count - user_gpu_count["n_gpu"], 0)
+                node2gpus_map[node_name][resource_idx]["count"] = count
+
+    avail_table = []
+    for node in node2gpus_map:
+        for resource in node2gpus_map[node]:
+            resource_type = resource["type"]
+            occupancy_stats = occupancy_stats_for_node(node)
+
+            assert resource_type in " ".join(occupancy_stats.keys())
+            occupancy_stats["node"] = node
+            occupancy_stats["type"] = resource_type
+
+            del occupancy_stats["gres/gpu"]
+            if "billing" in occupancy_stats:
+                del occupancy_stats["billing"]
+
+            avail_table.append(list(occupancy_stats.values()))
+
+    return avail_table
+
+    def convert_mb_to_gb(memory_in_mb, decimals=2):
+        return f"{round(memory_in_mb / 1024, decimals)}GB"
+
+    avail_table = []
+    for node in node2gpus_map:
+        for resource_type in node2gpus_map[node]:
+            free_cpu = max(
+                resource_type["CPUsTotal"] - resource_type["CPUsAllocated"], 0
+            )
+            total_mem = convert_mb_to_gb(resource_type["RealMemory"])
+            alloc_mem = convert_mb_to_gb(resource_type["AllocatedMemory"])
+            free_mem = convert_mb_to_gb(resource_type["FreeMemory"])
+            row = [
+                node,
+                resource_type["type"],
+                resource_type["count"],
+                resource_type["CPUsTotal"],
+                resource_type["CPUsAllocated"],
+                free_cpu,
+                total_mem,
+                alloc_mem,
+                free_mem,
+            ]
+            avail_table.append(row)
+
     return avail_table
 
 
@@ -717,25 +917,42 @@ def all_info(color: int, verbose: bool, partition: Optional[str] = None):
     online_table = summary(mode="online", resources=resources, states=states)
     avail_table = available(node2gpus_map=resources, states=states, verbose=verbose)
 
+    gpu_per_node_headers = [
+        "node",
+        "GPU model",
+        "GPU available",
+        "total cpu",
+        "cpu in use",
+        "free cpu",
+        "total mem",
+        "mem in use",
+        "free mem",
+    ]
+    gpu_per_node_headers = ["cpu", "mem", "gres/gpu", "node", "gpu type"]
+
+    avail_table_broken_down_per_node = available_per_node(
+        node2gpus_map=resources, states=states
+    )
+
     # in verbose mode, just print each section normally
     if verbose:
         print("all GPU's:")
         for row in all_gpus_table:
             for x in row:
-                print(x, end='\t')
-            print('\n', end='')
+                print(x, end="\t")
+            print("\n", end="")
         print()
         print("GPU's online:")
         for row in online_table:
             for x in row:
-                print(x, end='\t')
-            print('\n', end='')
+                print(x, end="\t")
+            print("\n", end="")
         print()
         print("GPU's available:")
         for row in avail_table:
             for x in row:
-                print(x, end='\t')
-            print('\n', end='')
+                print(x, end="\t")
+            print("\n", end="")
         print()
         print("Usage by user:")
     # in non-verbose mode, merge the three summaries into one nice table
@@ -746,44 +963,87 @@ def all_info(color: int, verbose: bool, partition: Optional[str] = None):
         online_df = pd.DataFrame(online_table, columns=["GPU model", "online"])
         online_df = online_df.set_index(["GPU model"])
 
-        avail_df = pd.DataFrame(avail_table, columns=["GPU model", "available", "notes"])
+        avail_df = pd.DataFrame(
+            avail_table, columns=["GPU model", "available", "notes"]
+        )
         # notes only exist in verbose mode
         avail_df.drop(columns="notes", inplace=True)
         avail_df = avail_df.set_index(["GPU model"])
 
-        big_df = pd.DataFrame()
-        for df in [all_gpus_df, online_df, avail_df]:
-            big_df = big_df.merge(df, how='outer', left_index=True, right_index=True)
-        big_df = big_df.sort_values(by="all", ascending=False)
-        print(tabulate(big_df, headers=(["GPU model", "all", "online", "available"])))
+        # big_df = pd.DataFrame()
+        # for df in [all_gpus_df, online_df, avail_df]:
+        #    big_df = big_df.merge(df, how="outer", left_index=True, right_index=True)
+        # big_df = big_df.sort_values(by="all", ascending=False)
+        # print(tabulate(big_df, headers=(["GPU model", "all", "online", "available"])))
+        # print(divider)
+
+        avail_table_broken_down_per_node_df = pd.DataFrame(
+            avail_table_broken_down_per_node,
+            columns=gpu_per_node_headers,
+        )
+        avail_table_broken_down_per_node_df = (
+            avail_table_broken_down_per_node_df.set_index(["node"])
+        )
+        avail_table_broken_down_per_node_df.sort_values(
+            by=["gpu type", "gres/gpu"], ascending=True, inplace=True
+        )
+        gpu_per_node_headers = ["node", "mem", "gres/gpu", "cpu", "gpu type"]
+        print(
+            tabulate(
+                avail_table_broken_down_per_node_df, headers=(gpu_per_node_headers)
+            )
+        )
         print(divider)
-    in_use_table = in_use(resources, partition=partition, verbose=verbose)
-    print(tabulate(in_use_table, showindex=False, headers="firstrow"))
+
+    # in_use_table = in_use(resources, partition=partition, verbose=verbose)
+    # print(tabulate(in_use_table, showindex=False, headers="firstrow"))
 
 
 def main():
     parser = argparse.ArgumentParser(description="slurm_gpus tool")
-    parser.add_argument("--action", default="current",
-                        choices=["current", "history", "daemon-start", "daemon-stop"],
-                        help=("The function performed by slurm_gpustat: `current` will"
-                              " provide a summary of current usage, 'history' will "
-                              "provide statistics from historical data (provided that the"
-                              "logging daemon has been running). 'daemon-start' and"
-                              "'daemon-stop' will start and stop the daemon, resp."))
-    parser.add_argument("-p", "--partition", default=None,
-                        help=("the partition/queue (or multiple, comma separated) of"
-                              " interest. By default set to all available partitions."))
-    parser.add_argument("--log_path",
-                        default=Path.home() / "data/daemons/logs/slurm_gpustat.log",
-                        help="the location where daemon log files will be stored")
-    parser.add_argument("--gpustat_pid",
-                        default=Path.home() / "data/daemons/pids/slurm_gpustat.pid",
-                        help="the location where the daemon PID file will be stored")
-    parser.add_argument("--daemon_log_interval", type=int, default=43200,
-                        help="time interval (secs) between stat logging (default 12 hrs)")
+    parser.add_argument(
+        "--action",
+        default="current",
+        choices=["current", "history", "daemon-start", "daemon-stop"],
+        help=(
+            "The function performed by slurm_gpustat: `current` will"
+            " provide a summary of current usage, 'history' will "
+            "provide statistics from historical data (provided that the"
+            "logging daemon has been running). 'daemon-start' and"
+            "'daemon-stop' will start and stop the daemon, resp."
+        ),
+    )
+    parser.add_argument(
+        "-p",
+        "--partition",
+        default=None,
+        help=(
+            "the partition/queue (or multiple, comma separated) of"
+            " interest. By default set to all available partitions."
+        ),
+    )
+    parser.add_argument(
+        "--log_path",
+        default=Path.home() / "data/daemons/logs/slurm_gpustat.log",
+        help="the location where daemon log files will be stored",
+    )
+    parser.add_argument(
+        "--gpustat_pid",
+        default=Path.home() / "data/daemons/pids/slurm_gpustat.pid",
+        help="the location where the daemon PID file will be stored",
+    )
+    parser.add_argument(
+        "--daemon_log_interval",
+        type=int,
+        default=43200,
+        help="time interval (secs) between stat logging (default 12 hrs)",
+    )
     parser.add_argument("--color", type=int, default=1, help="color output")
-    parser.add_argument("--verbose", action="store_true",
-                        help="provide a more detailed breakdown of resources")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="provide a more detailed breakdown of resources",
+    )
     args = parser.parse_args()
 
     if args.action == "current":

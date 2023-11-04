@@ -1,3 +1,23 @@
+Metadata-Version: 2.1
+Name: gpustat
+Version: 0.0.15
+Summary: A simple SLURM gpu summary tool
+Home-page: https://github.com/albanie/slurm_gpustat
+Author: Samuel Albanie
+Classifier: Programming Language :: Python :: 3.10
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: POSIX :: Linux
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: colored
+Requires-Dist: seaborn
+Requires-Dist: beartype
+Requires-Dist: humanize
+Requires-Dist: tabulate
+Requires-Dist: humanfriendly
+
 ## gpustat
 
 `gpustat` is a simple command line utility that produces a summary of GPU usage on a slurm cluster. The tool can be used in two ways:
