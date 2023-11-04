@@ -34,6 +34,7 @@ setuptools.setup(
         "beartype",
         "humanize",
         "tabulate",
+        "termcolor",
         "humanfriendly",
     ],
     classifiers=[
