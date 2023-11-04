@@ -1,6 +1,7 @@
 .vscode
 *.pyc
 dist
+gpustat.egg-info
 aisys_gpustat.egg-info
 build
 .coverage
