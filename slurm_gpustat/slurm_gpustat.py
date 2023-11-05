@@ -851,7 +851,10 @@ def available_per_node(node2gpus_map: dict, states: dict):
             resource_type = resource["type"]
             occupancy_stats = occupancy_stats_for_node(node)
 
-            assert resource_type in " ".join(occupancy_stats.keys())
+            if "gres/gpu" not in occupancy_stats:
+                occupancy_stats["gres/gpu"] = "N/A"
+                occupancy_stats["gres/none"] = "N/A"
+
             occupancy_stats["node"] = node
             occupancy_stats["type"] = resource_type
 
