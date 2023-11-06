@@ -833,18 +833,6 @@ def available_per_node(node2gpus_map: dict, states: dict):
         not in INACCESSIBLE
     }
 
-    gpu_usage_by_user = gpu_usage_grouped_by_user(resources=node2gpus_map)
-
-    for gpu_usage_for_user in gpu_usage_by_user.values():
-        for gpu_type, node_dicts in gpu_usage_for_user.items():
-            for node_name, user_gpu_count in node_dicts.items():
-                resource_idx = [x["type"] for x in node2gpus_map[node_name]].index(
-                    gpu_type
-                )
-                count = node2gpus_map[node_name][resource_idx]["count"]
-                count = max(count - user_gpu_count["n_gpu"], 0)
-                node2gpus_map[node_name][resource_idx]["count"] = count
-
     avail_table = []
     for node in node2gpus_map:
         for resource in node2gpus_map[node]:
@@ -916,9 +904,9 @@ def all_info(color: int, verbose: bool, partition: Optional[str] = None):
     resources = get_node2gpus_mapping(partition=partition)
     states = node_states(partition=partition)
 
-    all_gpus_table = summary(mode="all", resources=resources, states=states)
-    online_table = summary(mode="online", resources=resources, states=states)
-    avail_table = available(node2gpus_map=resources, states=states, verbose=verbose)
+    # all_gpus_table = summary(mode="all", resources=resources, states=states)
+    # online_table = summary(mode="online", resources=resources, states=states)
+    # avail_table = available(node2gpus_map=resources, states=states, verbose=verbose)
 
     gpu_per_node_headers = [
         "node",
@@ -960,18 +948,18 @@ def all_info(color: int, verbose: bool, partition: Optional[str] = None):
         print("Usage by user:")
     # in non-verbose mode, merge the three summaries into one nice table
     else:
-        all_gpus_df = pd.DataFrame(all_gpus_table, columns=["GPU model", "all"])
-        all_gpus_df = all_gpus_df.set_index(["GPU model"])
+        # all_gpus_df = pd.DataFrame(all_gpus_table, columns=["GPU model", "all"])
+        # all_gpus_df = all_gpus_df.set_index(["GPU model"])
 
-        online_df = pd.DataFrame(online_table, columns=["GPU model", "online"])
-        online_df = online_df.set_index(["GPU model"])
+        # online_df = pd.DataFrame(online_table, columns=["GPU model", "online"])
+        # online_df = online_df.set_index(["GPU model"])
 
-        avail_df = pd.DataFrame(
-            avail_table, columns=["GPU model", "available", "notes"]
-        )
+        # avail_df = pd.DataFrame(
+        #    avail_table, columns=["GPU model", "available", "notes"]
+        # )
         # notes only exist in verbose mode
-        avail_df.drop(columns="notes", inplace=True)
-        avail_df = avail_df.set_index(["GPU model"])
+        # avail_df.drop(columns="notes", inplace=True)
+        # avail_df = avail_df.set_index(["GPU model"])
 
         # big_df = pd.DataFrame()
         # for df in [all_gpus_df, online_df, avail_df]:
